@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MajdChess</title>
+<style>
+  :root {
+    --bg: #161512; --panel: #262421; --panel-2: #312e2b; --text: #e8e6e3; --muted: #9a968f;
+    --accent: #81b64c; --light: #ebecd0; --dark: #739552; --hl: rgba(255, 255, 51, .42);
+    --size: min(88vw, 78vh, 640px);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; align-items: center; justify-content: center;
+  }
+  main { display: flex; gap: 24px; padding: 16px; flex-wrap: wrap; justify-content: center; align-items: flex-start; }
+
+  .board-wrap { display: flex; gap: 10px; position: relative; }
+  .evalbar { width: 20px; height: var(--size); border-radius: 4px; background: #403d39; position: relative; overflow: hidden; }
+  .evalbar .fill { position: absolute; left: 0; right: 0; bottom: 0; height: 50%; background: #f2f2f2; transition: height .5s ease; }
+  .evalbar.black-bottom .fill { bottom: auto; top: 0; }
+  .evalbar .num { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 10px; font-weight: 700; color: #333; }
+  .evalbar.black-bottom .num { bottom: auto; top: 4px; }
+
+  #board {
+    width: var(--size); height: var(--size); display: grid; grid-template: repeat(8, 1fr) / repeat(8, 1fr);
+    border-radius: 6px; overflow: hidden; box-shadow: 0 12px 40px rgba(0, 0, 0, .55);
+    user-select: none; touch-action: none;
+  }
+  .sq { position: relative; display: flex; align-items: center; justify-content: center; }
+  .sq.l { background: var(--light); }
+  .sq.d { background: var(--dark); }
+  .sq.last::before, .sq.sel::before { content: ""; position: absolute; inset: 0; background: var(--hl); }
+  .sq.check { background-image: radial-gradient(circle, #ff2a2a 0%, rgba(230, 0, 0, .7) 30%, transparent 72%); }
+  .sq.move::after { content: ""; position: absolute; width: 30%; height: 30%; border-radius: 50%; background: rgba(0, 0, 0, .2); }
+  .sq.capture::after { content: ""; position: absolute; inset: 4%; border-radius: 50%; border: calc(var(--size) / 110) solid rgba(0, 0, 0, .22); }
+  .coord { position: absolute; font-size: calc(var(--size) / 48); font-weight: 700; pointer-events: none; }
+  .coord.rank { top: 3%; left: 5%; }
+  .coord.file { bottom: 2%; right: 6%; }
+  .sq.l .coord { color: var(--dark); }
+  .sq.d .coord { color: var(--light); }
+
+  .pc { position: relative; z-index: 1; font-size: calc(var(--size) / 8 * .82); line-height: 1; cursor: grab; }
+  .pc.w { color: #fff; text-shadow: 0 0 1px #000, 0 0 1px #000, 0 0 2px #000, 0 2px 3px rgba(0, 0, 0, .35); }
+  .pc.b { color: #1c1b19; text-shadow: 0 0 1px #fff4, 0 2px 3px rgba(0, 0, 0, .35); }
+  .pc.ghost { position: fixed; z-index: 10; pointer-events: none; transform: translate(-50%, -50%) scale(1.1); cursor: grabbing; }
+
+  #promo {
+    position: absolute; inset: 0; left: 30px; display: none; align-items: center; justify-content: center;
+    background: rgba(0, 0, 0, .55); border-radius: 6px; z-index: 5;
+  }
+  #promo.open { display: flex; }
+  #promo div { display: flex; gap: 8px; background: var(--panel); padding: 12px; border-radius: 10px; }
+  #promo button { width: calc(var(--size) / 7); height: calc(var(--size) / 7); background: var(--light); border-radius: 8px; }
+  #promo button .pc { font-size: calc(var(--size) / 10); }
+
+  aside {
+    width: 300px; min-height: var(--size); background: var(--panel); border-radius: 8px; padding: 18px;
+    display: flex; flex-direction: column; gap: 16px;
+  }
+  h1 { margin: 0; font-size: 22px; letter-spacing: .3px; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  #status { background: var(--panel-2); border-radius: 6px; padding: 10px 12px; font-weight: 600; min-height: 42px; }
+  #status.thinking::after { content: ""; display: inline-block; width: 10px; height: 10px; margin-left: 8px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  label { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
+  .level-row { display: flex; justify-content: space-between; align-items: baseline; }
+  #level-name { font-weight: 600; color: var(--text); text-transform: none; letter-spacing: 0; font-size: 14px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  select, button { font: inherit; color: var(--text); background: var(--panel-2); border: 1px solid #3d3a36; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+  select { width: 100%; }
+  button:hover:not(:disabled) { background: #3d3a36; }
+  button:disabled { opacity: .5; cursor: default; }
+  .buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  #new-game { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  #new-game:hover { background: #8fc45a; }
+  #moves {
+    flex: 1; min-height: 120px; max-height: 280px; overflow-y: auto; background: var(--panel-2); border-radius: 6px;
+    display: grid; grid-template-columns: 36px 1fr 1fr; align-content: start; font-variant-numeric: tabular-nums;
+  }
+  #moves span { padding: 4px 8px; }
+  #moves .n { color: var(--muted); background: rgba(0, 0, 0, .15); }
+  #info { color: var(--muted); font-size: 12px; min-height: 16px; }
+
+  @media (max-width: 720px) {
+    aside { width: min(100%, calc(var(--size) + 30px)); min-height: 0; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <div class="board-wrap">
+    <div class="evalbar" id="evalbar"><div class="fill" id="eval-fill"></div><div class="num" id="eval-num"></div></div>
+    <div id="board"></div>
+    <div id="promo"><div id="promo-choices"></div></div>
+  </div>
+
+  <aside>
+    <div>
+      <h1>Majd<span>Chess</span></h1>
+      <div class="sub">Alpha-beta search · iterative deepening · transposition table</div>
+    </div>
+    <div id="status">Connecting…</div>
+    <div>
+      <div class="level-row"><label for="level">Difficulty</label><span id="level-name"></span></div>
+      <input type="range" id="level" min="1" max="10" value="5">
+    </div>
+    <div>
+      <label for="color">Play as</label>
+      <select id="color">
+        <option value="white">White</option>
+        <option value="black">Black</option>
+        <option value="random">Random</option>
+      </select>
+    </div>
+    <button id="new-game">New game</button>
+    <div class="buttons">
+      <button id="undo">Undo</button>
+      <button id="hint">Hint</button>
+      <button id="flip">Flip</button>
+    </div>
+    <div id="moves"></div>
+    <div id="info"></div>
+  </aside>
+</main>
+
+<script>
+const GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
+const LEVEL_NAMES = ["Beginner", "Novice", "Casual", "Club player", "Intermediate",
+                     "Advanced", "Expert", "Candidate master", "Master", "Full strength"];
+const $ = id => document.getElementById(id);
+const board = $("board");
+
+let state = null, human = "white", flipped = false, selected = null, busy = false, lastInfo = null, drag = null, hintMove = null;
+
+async function api(moves, think, level = +$("level").value) {
+  const res = await fetch("/api", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ moves, think, level }),
+  });
+  if (!res.ok) throw new Error("server error");
+  return res.json();
+}
+
+function pieces() {
+  const map = {};
+  state.fen.split(" ")[0].split("/").forEach((row, r) => {
+    let f = 0;
+    for (const ch of row) {
+      if (/\d/.test(ch)) f += +ch;
+      else map["abcdefgh"[f++] + (8 - r)] = ch;
+    }
+  });
+  return map;
+}
+
+const isOwn = p => (p === p.toUpperCase()) === (human === "white");
+const myTurn = () => state && !busy && !state.result && state.turn === human;
+const isLegal = (from, to) => state.legal.some(m => m.startsWith(from + to));
+
+function pieceEl(p) {
+  const s = document.createElement("span");
+  s.className = "pc " + (p === p.toUpperCase() ? "w" : "b");
+  s.textContent = GLYPH[p.toLowerCase()] + "︎";  // force text glyph, not emoji
+  return s;
+}
+
+function render() {
+  const map = pieces();
+  const whiteBottom = (human === "white") !== flipped;
+  const last = state.moves.at(-1);
+  const targets = selected ? state.legal.filter(m => m.startsWith(selected)).map(m => m.slice(2, 4)) : [];
+
+  board.replaceChildren();
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const file = whiteBottom ? c : 7 - c, rank = whiteBottom ? 7 - r : r;
+      const sq = "abcdefgh"[file] + (rank + 1);
+      const el = document.createElement("div");
+      el.className = "sq " + ((file + rank) % 2 ? "l" : "d");
+      el.dataset.sq = sq;
+      const hl = hintMove || last;
+      if (hl && (hl.slice(0, 2) === sq || hl.slice(2, 4) === sq)) el.classList.add("last");
+      if (sq === selected) el.classList.add("sel");
+      if (sq === state.check) el.classList.add("check");
+      if (targets.includes(sq)) el.classList.add(map[sq] ? "capture" : "move");
+      if (map[sq]) el.append(pieceEl(map[sq]));
+      if (c === 0) el.insertAdjacentHTML("beforeend", `<span class="coord rank">${rank + 1}</span>`);
+      if (r === 7) el.insertAdjacentHTML("beforeend", `<span class="coord file">${"abcdefgh"[file]}</span>`);
+      board.append(el);
+    }
+  }
+
+  const status = $("status");
+  status.classList.toggle("thinking", busy);
+  if (state.result) status.textContent = `Game over: ${state.result.score} by ${state.result.reason}`;
+  else if (busy) status.textContent = "Engine is thinking";
+  else status.textContent = state.turn === human ? (state.check ? "Check! Your move" : "Your move") : "Engine to move";
+
+  const moves = $("moves");
+  moves.replaceChildren();
+  state.san.forEach((san, i) => {
+    if (i % 2 === 0) moves.insertAdjacentHTML("beforeend", `<span class="n">${i / 2 + 1}.</span>`);
+    moves.insertAdjacentHTML("beforeend", `<span>${san}</span>`);
+  });
+  moves.scrollTop = moves.scrollHeight;
+
+  renderEval(whiteBottom);
+  $("undo").disabled = busy || state.moves.length === 0;
+  $("hint").disabled = !myTurn();
+}
+
+function renderEval(whiteBottom) {
+  $("evalbar").classList.toggle("black-bottom", !whiteBottom);
+  let pct = 50, text = "0.0";
+  if (lastInfo) {
+    if (lastInfo.mate) {
+      pct = lastInfo.mate > 0 ? 100 : 0;
+      text = "M" + Math.abs(lastInfo.mate);
+    } else {
+      pct = 50 + 50 * Math.tanh(lastInfo.score / 600);
+      text = (Math.abs(lastInfo.score) / 100).toFixed(1);
+    }
+    $("info").textContent = `Depth ${lastInfo.depth} · ${lastInfo.nodes.toLocaleString()} nodes · ` +
+      `Eval ${lastInfo.mate ? "#" + lastInfo.mate : (lastInfo.score > 0 ? "+" : "") + (lastInfo.score / 100).toFixed(2)}`;
+  } else {
+    $("info").textContent = "";
+  }
+  $("eval-fill").style.height = pct + "%";
+  $("eval-num").textContent = text;
+}
+
+async function run(task) {
+  try {
+    await task();
+  } catch {
+    busy = false;
+    $("status").textContent = "Lost connection to the engine. Is web.py running?";
+  }
+}
+
+async function engineMove() {
+  busy = true;
+  render();
+  state = await api(state.moves, true);
+  if (state.info) lastInfo = state.info;
+  busy = false;
+  render();
+}
+
+async function play(uci) {
+  selected = null;
+  hintMove = null;
+  state = await api([...state.moves, uci], false);
+  render();
+  if (!state.result) await engineMove();
+}
+
+function tryMove(from, to) {
+  const options = state.legal.filter(m => m.startsWith(from + to));
+  if (options.length > 1) return askPromotion(from + to);
+  run(() => play(options[0]));
+}
+
+function askPromotion(prefix) {
+  const choices = $("promo-choices");
+  choices.replaceChildren();
+  for (const p of "qrbn") {
+    const btn = document.createElement("button");
+    btn.append(pieceEl(human === "white" ? p.toUpperCase() : p));
+    btn.onclick = () => { $("promo").classList.remove("open"); run(() => play(prefix + p)); };
+    choices.append(btn);
+  }
+  $("promo").classList.add("open");
+}
+
+board.addEventListener("pointerdown", e => {
+  const sq = e.target.closest(".sq")?.dataset.sq;
+  if (!sq || !myTurn()) return;
+  if (selected && isLegal(selected, sq)) return tryMove(selected, sq);
+  const p = pieces()[sq];
+  if (!p || !isOwn(p)) { selected = null; render(); return; }
+
+  const wasSelected = selected === sq;
+  selected = sq;
+  render();
+  const src = board.querySelector(`[data-sq="${sq}"] .pc`);
+  const ghost = src.cloneNode(true);
+  ghost.classList.add("ghost");
+  document.body.append(ghost);
+  src.style.opacity = .35;
+  drag = { from: sq, ghost, wasSelected };
+  moveGhost(e);
+});
+
+function moveGhost(e) {
+  drag.ghost.style.left = e.clientX + "px";
+  drag.ghost.style.top = e.clientY + "px";
+}
+
+window.addEventListener("pointermove", e => drag && moveGhost(e));
+window.addEventListener("pointerup", e => {
+  if (!drag) return;
+  const { from, ghost, wasSelected } = drag;
+  drag = null;
+  ghost.remove();
+  const to = document.elementFromPoint(e.clientX, e.clientY)?.closest(".sq")?.dataset.sq;
+  if (to && to !== from && isLegal(from, to)) return tryMove(from, to);
+  if (to === from && wasSelected) selected = null;
+  render();
+});
+
+async function newGame() {
+  const choice = $("color").value;
+  human = choice === "random" ? (Math.random() < .5 ? "white" : "black") : choice;
+  flipped = false; selected = null; lastInfo = null; hintMove = null;
+  state = await api([], false);
+  render();
+  if (human === "black") await engineMove();
+}
+
+async function undo() {
+  let moves = state.moves.slice(0, -1);
+  const turnAfter = m => (m.length % 2 === 0 ? "white" : "black");
+  if (turnAfter(moves) !== human) moves = moves.slice(0, -1);
+  selected = null; hintMove = null;
+  state = await api(moves, false);
+  render();
+  if (state.turn !== human) await engineMove();
+}
+
+async function hint() {
+  busy = true;
+  render();
+  const suggestion = await api(state.moves, true, 8);
+  busy = false;
+  hintMove = suggestion.moves.at(-1);
+  render();
+  $("status").textContent = "Hint: " + suggestion.san.at(-1);
+}
+
+function showLevel() { $("level-name").textContent = `${$("level").value} · ${LEVEL_NAMES[$("level").value - 1]}`; }
+
+$("level").addEventListener("input", showLevel);
+$("new-game").onclick = () => run(newGame);
+$("undo").onclick = () => run(undo);
+$("hint").onclick = () => run(hint);
+$("flip").onclick = () => { flipped = !flipped; render(); };
+showLevel();
+run(newGame);
+</script>
+</body>
+</html>
