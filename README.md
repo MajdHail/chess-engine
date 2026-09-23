@@ -49,10 +49,14 @@ human-like mistakes instead of just playing the same move a bit slower.
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
+python web.py                            # play in the browser at http://localhost:8000
 python play.py --level 5 --color white   # play in the terminal
 python uci.py                            # run as a UCI engine
 python test_engine.py                    # run the tests
 ```
+
+The browser UI has drag and drop or click to move, legal move highlights, an evaluation bar,
+a difficulty slider, move list, undo, hints, board flip, and a promotion picker.
 
 In the terminal game, type moves as SAN (`Nf3`, `O-O`) or UCI (`g1f3`). Commands:
 `level N` changes difficulty mid-game, `hint` suggests a move, `undo` takes back your last move,
@@ -70,5 +74,7 @@ engine.py       search: alpha-beta, TT, quiescence, pruning, move ordering, diff
 evaluation.py   tapered PeSTO evaluation
 uci.py          UCI protocol adapter
 play.py         terminal game
+web.py          local web server for the browser UI (stdlib only)
+index.html      browser UI
 test_engine.py  tactical and sanity tests (mate in 1/2, hanging pieces, stalemate avoidance)
 ```
