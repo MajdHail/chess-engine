@@ -65,11 +65,10 @@
   #promo button:not(:hover) { background: var(--sq-light); }
 
   /* ---------- side panel ---------- */
-  aside { width: 320px; display: flex; flex-direction: column; gap: 22px; }
-  h1 { margin: 0; font-size: 76px; line-height: .82; font-weight: 700; letter-spacing: -4px; }
+  aside { width: 340px; display: flex; flex-direction: column; gap: 16px; }
+  h1 { margin: 0; font-size: 60px; line-height: .82; font-weight: 700; letter-spacing: -4px; }
   h1 span { color: var(--accent); }
-  .tagline { font: 12px var(--mono); color: var(--muted); margin-top: 10px; }
-  #status { font-size: 28px; font-weight: 700; line-height: 1.05; min-height: 60px; text-transform: uppercase; letter-spacing: -.5px; }
+  #status { font-size: 24px; font-weight: 700; line-height: 1.05; min-height: 50px; text-transform: uppercase; letter-spacing: -.5px; }
   #status.thinking::after { content: "_"; color: var(--accent); animation: blink-text .6s steps(2) infinite; }
   @keyframes blink-text { 50% { opacity: 0; } }
 
@@ -102,12 +101,19 @@
   #eval-big { font: 700 44px var(--mono); letter-spacing: -2px; }
   #info { font: 11px/1.5 var(--mono); color: var(--muted); text-align: right; }
   #moves {
-    height: 190px; overflow-y: auto; font: 13px var(--mono); border-top: 2px solid var(--ink);
+    height: 110px; overflow-y: auto; font: 13px var(--mono); border-top: 2px solid var(--ink);
     display: grid; grid-template-columns: 38px 1fr 1fr; align-content: start;
   }
   #moves span { padding: 5px 6px; border-bottom: 1px solid #262626; }
   #moves .n { color: var(--muted); }
   #moves span:last-child:not(.n) { color: var(--accent); font-weight: 700; }
+
+  #explain { font-size: 14px; line-height: 1.45; min-height: 84px; }
+  #explain b { color: var(--accent); font-weight: 700; }
+  #explain p { margin: 0 0 6px; }
+  details { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  summary { cursor: pointer; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: 1px; color: var(--ink); }
+  details p { margin: 8px 0 0; }
 
   @media (max-width: 760px) {
     h1 { font-size: 56px; }
@@ -128,7 +134,6 @@
   <aside>
     <div>
       <h1>MAJD<br>CHESS<span>.</span></h1>
-      <div class="tagline">// negamax · alpha-beta · written by majd</div>
     </div>
     <div id="status">Loading</div>
     <div>
@@ -153,29 +158,32 @@
       <div id="eval-big">0.00</div>
       <div id="info">waiting for<br>first search</div>
     </div>
+    <div id="explain"></div>
     <div id="moves"></div>
+    <details>
+      <summary>How the engine thinks</summary>
+      <p>Before every move it imagines the game going forward: every move it could play, every reply
+      you could make, its answer to that, and so on, several turns deep. That is a <i>minimax</i> search.</p>
+      <p>It scores the positions at the end of each line by counting material and checking how well
+      each piece is placed, then picks the move that leads to the best score assuming you also play well.</p>
+      <p>To go deeper in the same time it skips lines that provably cannot change the answer
+      (<i>alpha-beta pruning</i>), remembers positions it has already scored, and looks at the most
+      promising moves first. Lower difficulty levels look fewer moves ahead and add random error.</p>
+    </details>
   </aside>
 </main>
 
 <script>
 const GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const LEVEL_NAMES = ["Pushover", "Rookie", "Casual", "Club", "Solid",
-                     "Sharp", "Strong", "Brutal", "Ruthless", "Majd mode"];
+                     "Sharp", "Strong", "Brutal", "Ruthless", "Maximum"];
 const $ = id => document.getElementById(id);
 const board = $("board");
 
 let state = null, human = "white", colorChoice = "white", level = 5, flipped = false;
 let selected = null, busy = false, lastInfo = null, drag = null, hintMove = null;
 
-async function api(moves, think, lvl = level) {
-  const res = await fetch("/api", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ moves, think, level: lvl }),
-  });
-  if (!res.ok) throw new Error("server error");
-  return res.json();
-}
+const api = (moves, think, lvl = level) => window.pywebview.api.play(moves, think, lvl);
 
 function pieces() {
   const map = {};
@@ -231,7 +239,7 @@ function render() {
   status.classList.toggle("thinking", busy);
   if (state.result) {
     const won = (state.result.score === "1-0") === (human === "white");
-    const text = state.result.score === "1/2-1/2" ? "Draw." : won ? "You win." : "Majd wins.";
+    const text = state.result.score === "1/2-1/2" ? "Draw." : won ? "You win." : "You lost.";
     status.textContent = `${text} ${state.result.reason}`;
   } else if (busy) status.textContent = "Thinking";
   else if (state.turn === human) status.textContent = state.check ? "Check. Your move." : "Your move.";
@@ -272,7 +280,7 @@ async function run(task) {
     await task();
   } catch {
     busy = false;
-    $("status").textContent = "Engine offline. Run web.py.";
+    $("status").textContent = "Something went wrong. Restart the app.";
   }
 }
 
@@ -281,8 +289,43 @@ async function engineMove() {
   render();
   state = await api(state.moves, true);
   if (state.info) lastInfo = state.info;
+  explain(state.san.at(-1), state.info);
   busy = false;
   render();
+}
+
+function describeEval(info) {
+  const mine = human === "white" ? 1 : -1;
+  if (info.mate) {
+    const n = Math.abs(info.mate);
+    return info.mate * mine > 0 ? `It sees that <b>you</b> can force checkmate in ${n}.`
+                                : `It sees a forced <b>checkmate in ${n}</b> for itself.`;
+  }
+  const edge = info.score * mine;
+  const who = edge > 0 ? "you are" : "it is";
+  const size = Math.abs(edge);
+  if (size < 30) return "It thinks the position is <b>about even</b>.";
+  if (size < 100) return `It thinks ${who} <b>slightly better</b> (${(size / 100).toFixed(1)} pawns).`;
+  if (size < 300) return `It thinks ${who} <b>clearly better</b> (${(size / 100).toFixed(1)} pawns).`;
+  return `It thinks ${who} <b>winning</b> (${(size / 100).toFixed(1)} pawns).`;
+}
+
+function explain(san, info) {
+  const box = $("explain");
+  if (!info) {
+    box.innerHTML = san ? `<p>Played <b>${san}</b>, its only legal move.</p>` : "";
+    return;
+  }
+  const notes = [];
+  if (san.includes("x")) notes.push("captures a piece");
+  if (san.includes("+")) notes.push("gives check");
+  if (san.startsWith("O-O")) notes.push("castles to protect its king");
+  const plan = info.pv.slice(1, 4);
+  box.innerHTML =
+    `<p>Played <b>${san}</b>${notes.length ? ", which " + notes.join(" and ") : ""}.</p>` +
+    `<p>It looked <b>${info.depth} moves ahead</b> and checked ${info.nodes.toLocaleString()} positions in ${info.seconds}s.</p>` +
+    (plan.length ? `<p>It expects the game to continue <b>${plan.join(" ")}</b>.</p>` : "") +
+    `<p>${describeEval(info)}</p>`;
 }
 
 async function play(uci) {
@@ -350,6 +393,7 @@ window.addEventListener("pointerup", e => {
 async function newGame() {
   human = colorChoice === "random" ? (Math.random() < .5 ? "white" : "black") : colorChoice;
   flipped = false; selected = null; lastInfo = null; hintMove = null;
+  $("explain").innerHTML = "<p>Your game. Make a move and the engine will explain its reply here.</p>";
   state = await api([], false);
   render();
   if (human === "black") await engineMove();
@@ -398,7 +442,7 @@ $("new-game").onclick = () => run(newGame);
 $("undo").onclick = () => run(undo);
 $("hint").onclick = () => run(hint);
 $("flip").onclick = () => { flipped = !flipped; render(); };
-run(newGame);
+window.addEventListener("pywebviewready", () => run(newGame));
 </script>
 </body>
 </html>
