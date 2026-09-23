@@ -1,28 +1,31 @@
-"""Browser UI: python web.py, then play at http://localhost:8000"""
-import json
-import webbrowser
-from http.server import BaseHTTPRequestHandler, HTTPServer
+"""Desktop app: python app.py opens the game in a native window."""
+import sys
 from pathlib import Path
 
 import chess
+import webview
 
 from engine import MATE, MATE_THRESHOLD, Engine
 
-PAGE = Path(__file__).with_name("index.html")
-engine = Engine()
+# PyInstaller unpacks bundled files to _MEIPASS, not next to this script.
+PAGE = Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "index.html"
+
+
+def san_list(board, moves):
+    board = board.copy()
+    out = []
+    for move in moves:
+        out.append(board.san(move))
+        board.push(move)
+    return out
 
 
 def game_state(board, info=None):
     outcome = board.outcome()
-    replay = chess.Board()
-    san = []
-    for move in board.move_stack:
-        san.append(replay.san(move))
-        replay.push(move)
     return {
         "fen": board.fen(),
         "moves": [m.uci() for m in board.move_stack],
-        "san": san,
+        "san": san_list(chess.Board(), board.move_stack),
         "legal": [m.uci() for m in board.legal_moves],
         "turn": "white" if board.turn else "black",
         "check": chess.square_name(board.king(board.turn)) if board.is_check() else None,
@@ -31,49 +34,36 @@ def game_state(board, info=None):
     }
 
 
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self._send(200, "text/html", PAGE.read_bytes())
+class Api:
+    """Methods here are callable from the page as window.pywebview.api.<name>()."""
 
-    def do_POST(self):
-        """Body: {moves: [uci], level: 1-10, think: bool}. Replays the game, optionally lets the engine move."""
-        try:
-            request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            board = chess.Board()
-            for uci in request.get("moves", []):
-                board.push_uci(uci)  # raises ValueError on illegal moves
-        except (ValueError, TypeError, KeyError):
-            self._send(400, "application/json", b'{"error": "bad request"}')
-            return
+    def __init__(self):
+        self.engine = Engine()
+
+    def play(self, moves, think=False, level=5):
+        """Replay `moves` from the start position and optionally let the engine answer."""
+        board = chess.Board()
+        for uci in moves:
+            board.push_uci(uci)  # raises on illegal moves, which rejects the JS promise
 
         info = None
-        if request.get("think") and not board.is_game_over():
-            engine.set_level(request.get("level", 5))
+        if think and not board.is_game_over():
+            self.engine.set_level(level)
             last = {}
-            move = engine.search(board, on_info=lambda d, s, n, t, pv: last.update(depth=d, score=s, nodes=n))
+            move = self.engine.search(board, on_info=lambda d, s, n, t, pv: last.update(depth=d, score=s, nodes=n, seconds=t, pv=pv))
             if last:
                 # Engine scores are from the mover's side; the UI shows white's perspective.
                 sign = 1 if board.turn == chess.WHITE else -1
                 score = last["score"]
                 mate = (MATE - abs(score) + 1) // 2 if abs(score) >= MATE_THRESHOLD else None
-                info = {"depth": last["depth"], "nodes": last["nodes"], "score": sign * score,
-                        "mate": mate and sign * (mate if score > 0 else -mate)}
+                info = {"depth": last["depth"], "nodes": last["nodes"], "seconds": round(last["seconds"], 2),
+                        "score": sign * score, "mate": mate and sign * (mate if score > 0 else -mate),
+                        "pv": san_list(board, last["pv"])}
             board.push(move)
-        self._send(200, "application/json", json.dumps(game_state(board, info)).encode())
-
-    def _send(self, status, content_type, body):
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *args):
-        pass
+        return game_state(board, info)
 
 
 if __name__ == "__main__":
-    # Single-threaded on purpose: one shared engine and its transposition table.
-    server = HTTPServer(("127.0.0.1", 8000), Handler)
-    print("Playing at http://localhost:8000  (Ctrl+C to stop)")
-    webbrowser.open("http://localhost:8000")
-    server.serve_forever()
+    webview.create_window("Majd Chess", str(PAGE), js_api=Api(), width=1120, height=800,
+                          min_size=(760, 600), background_color="#0e0e0e")
+    webview.start()
