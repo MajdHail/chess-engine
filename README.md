@@ -1,89 +1,44 @@
-# MajdChess
+# Majd Chess
 
-A chess engine written in Python, built around a **negamax alpha-beta search** with the classic
-enhancements used by competitive engines. Play it in the terminal or load it into any UCI chess GUI,
-with 10 difficulty levels from beginner to full strength.
+A chess engine I built in Python, with a desktop app to play against it.
 
-[python-chess](https://python-chess.readthedocs.io/) is used only for board representation and legal
-move generation. Everything that decides *which* move to play (search, pruning, move ordering,
-evaluation, time management) is implemented here.
+I used python-chess for the board and legal moves. The part that actually picks moves (search and evaluation) is my own.
 
-## Algorithms
+## How it works
 
-| Technique | What it does |
-|---|---|
-| Negamax with alpha-beta pruning | Minimax search that skips branches that provably cannot change the result |
-| Iterative deepening | Searches depth 1, 2, 3... so a best move is always ready when time runs out, and each iteration seeds move ordering for the next |
-| Principal variation search | Searches the first move with a full window and the rest with a null window, re-searching only on a fail high |
-| Transposition table (Zobrist hashing) | Caches results of positions reached through different move orders, with exact/lower/upper bound flags and mate-distance correction |
-| Quiescence search | Keeps searching captures past the depth limit to avoid the horizon effect |
-| Null-move pruning | Skips a turn; if the position is still too good for the opponent, prunes the node (disabled in pawn-only endings to avoid zugzwang errors) |
-| Late move reductions | Searches late, quiet moves at reduced depth and re-searches if they surprise |
-| Move ordering | TT move, then MVV-LVA captures, promotions, killer moves, and the history heuristic |
-| Check extensions | Extends the search by one ply when in check so forcing lines are seen through |
-| Tapered evaluation | PeSTO piece-square tables with separate middlegame and endgame scores blended by game phase |
+The engine uses minimax with alpha-beta pruning. On top of that I added:
 
-On a laptop it reaches roughly depth 7 from the opening position in under 2 seconds.
+- iterative deepening, so it always has a move ready when time runs out
+- a transposition table with Zobrist hashing so it doesn't re-search the same positions
+- quiescence search so it doesn't stop in the middle of a capture sequence
+- null move pruning and late move reductions to search deeper
+- move ordering (MVV-LVA, killer moves, history heuristic)
+- an evaluation based on the PeSTO piece-square tables, blended between middlegame and endgame
 
-## Difficulty levels
+It gets to around depth 7 from the starting position in a couple of seconds.
 
-| Level | Max depth | Time per move | Root score noise |
-|---|---|---|---|
-| 1 | 1 | 0.1 s | ±300 cp |
-| 2 | 1 | 0.2 s | ±150 cp |
-| 3 | 2 | 0.3 s | ±100 cp |
-| 4 | 2 | 0.5 s | ±60 cp |
-| 5 | 3 | 1 s | ±30 cp |
-| 6 | 4 | 1.5 s | ±15 cp |
-| 7 | 5 | 2 s | none |
-| 8 | 6 | 3 s | none |
-| 9 | 8 | 5 s | none |
-| 10 | unlimited | 10 s | none |
+## Difficulty
 
-Lower levels combine a shallow search with random noise on the root move scores, so the engine makes
-human-like mistakes instead of just playing the same move a bit slower.
+There are 10 levels. Lower levels search fewer moves ahead and add some randomness to their choices so they make mistakes like a real beginner would. Level 10 searches as deep as it can in 10 seconds.
 
-## Usage
+## Running it
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-
-python app.py                            # desktop app window
-python play.py --level 5 --color white   # play in the terminal
-python uci.py                            # run as a UCI engine
-python test_engine.py                    # run the tests
+python app.py
 ```
 
-The desktop app has drag and drop or click to move, legal move highlights, an evaluation bar,
-10 difficulty levels, move list, undo, hints, board flip, a promotion picker, and a panel that
-explains every engine move in plain English: how deep it searched, how many positions it checked,
-the line it expects, and who it thinks is better.
+After each move the app shows what the engine was thinking: how deep it looked, the line it expects, and who it thinks is winning.
 
-To build a standalone macOS app (`dist/Majd Chess.app`):
+It also speaks UCI (`python uci.py`), so you can load it into a chess GUI like Cute Chess or Arena.
+
+To build a Mac app:
 
 ```bash
 pip install pyinstaller
 pyinstaller --noconfirm --windowed --name "Majd Chess" --add-data "index.html:." app.py
 ```
 
-In the terminal game, type moves as SAN (`Nf3`, `O-O`) or UCI (`g1f3`). Commands:
-`level N` changes difficulty mid-game, `hint` suggests a move, `undo` takes back your last move,
-`flip` switches sides, `quit` exits.
-
-### Using it in a chess GUI
-
-Add `uci.py` as a UCI engine in Cute Chess, Arena, or Banksia (point it at `.venv/bin/python` with
-`uci.py` as the argument). The difficulty is exposed as the `Skill Level` option (1 to 10).
-
-## Project layout
-
-```
-engine.py       search: alpha-beta, TT, quiescence, pruning, move ordering, difficulty levels
-evaluation.py   tapered PeSTO evaluation
-uci.py          UCI protocol adapter
-play.py         terminal game
-app.py          desktop app (native window via pywebview)
-index.html      app UI
-test_engine.py  tactical and sanity tests (mate in 1/2, hanging pieces, stalemate avoidance)
-```
+Tests: `python test_engine.py`
