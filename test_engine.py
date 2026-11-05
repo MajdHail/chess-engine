@@ -3,6 +3,7 @@ import chess
 
 from engine import Engine
 from evaluation import evaluate
+from uci import parse_go
 
 
 def best(fen, depth=4, level=10):
@@ -38,6 +39,14 @@ def test_every_level_returns_legal_move():
     board = chess.Board()
     for level in range(1, 11):
         assert Engine(level).search(board, time_limit=0.2) in board.legal_moves
+
+
+def test_go_depth_keeps_time_limit():
+    # En Croissant sends "go depth 30" and waits; a Python search would never reach that depth.
+    engine = Engine(10)
+    time_limit, max_depth = parse_go("go depth 30".split(), chess.Board(), engine)
+    assert time_limit == engine.time_limit
+    assert max_depth == 30
 
 
 if __name__ == "__main__":

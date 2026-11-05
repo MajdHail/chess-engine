@@ -21,7 +21,7 @@ def parse_go(tokens, board, engine):
     """Return (time_limit, max_depth). The difficulty level stays an upper bound on both."""
     args = dict(zip(tokens[1::2], tokens[2::2]))
     if "depth" in args:
-        return float("inf"), min(int(args["depth"]), engine.max_depth)
+        return engine.time_limit, min(int(args["depth"]), engine.max_depth)
     if "movetime" in args:
         return int(args["movetime"]) / 1000, None
     side = "w" if board.turn == chess.WHITE else "b"
