@@ -1,4 +1,17 @@
-"""UCI protocol adapter so the engine plugs into GUIs like Cute Chess, Arena or lichess-bot."""
+"""UCI mode: lets other chess programs use this engine.
+
+UCI (Universal Chess Interface) is the standard text protocol chess engines
+speak. A chess GUI like Cute Chess or Arena starts `python uci.py`, writes
+commands to it, and reads replies. For example:
+
+    GUI sends:     position startpos moves e2e4
+    GUI sends:     go movetime 1000
+    engine sends:  info depth 5 score cp -20 ...
+    engine sends:  bestmove e7e5
+
+This means you can make the engine play against other engines, or against
+itself, without the desktop app.
+"""
 import sys
 
 import chess
@@ -7,6 +20,7 @@ from engine import MATE, MATE_THRESHOLD, Engine
 
 
 def parse_position(tokens):
+    """Handle 'position startpos moves ...' or 'position fen <fen> moves ...'."""
     moves = []
     if "moves" in tokens:
         i = tokens.index("moves")
@@ -28,12 +42,14 @@ def parse_go(tokens, board, engine):
     if f"{side}time" in args:
         remaining = int(args[f"{side}time"]) / 1000
         increment = int(args.get(f"{side}inc", 0)) / 1000
+        # Spend about 1/30 of the clock per move, plus half the increment.
         return min(engine.time_limit, remaining / 30 + increment / 2), None
     # ponytail: "go infinite" is treated as a normal search since there is no stop thread
     return None, None
 
 
 def format_score(score):
+    """UCI wants 'cp 35' for normal scores and 'mate 3' for forced mates."""
     if abs(score) >= MATE_THRESHOLD:
         moves = (MATE - abs(score) + 1) // 2
         return f"mate {moves if score > 0 else -moves}"
@@ -41,6 +57,7 @@ def format_score(score):
 
 
 def main():
+    # Send each line right away, otherwise the GUI sits waiting for output stuck in a buffer.
     sys.stdout.reconfigure(line_buffering=True)
     engine = Engine(10)
     board = chess.Board()
@@ -50,6 +67,7 @@ def main():
         print(f"info depth {depth} score {format_score(score)} nodes {nodes} nps {nps} "
               f"time {int(seconds * 1000)} pv {' '.join(m.uci() for m in pv)}")
 
+    # Read one command per line until the GUI says quit.
     for line in sys.stdin:
         tokens = line.split()
         if not tokens:

@@ -1,12 +1,21 @@
-"""Tapered evaluation using the PeSTO piece-square tables (Rofchade / CPW).
+"""The evaluation: looking at a position and guessing who is better, without searching.
 
-Middlegame and endgame scores are computed separately and blended by game phase,
-so e.g. the king hides early and centralizes late.
+The score is in centipawns (100 = one pawn) and has two parts:
+
+1. Material: how much each piece is worth (a queen is worth about 10 pawns).
+2. Piece-square tables (PST): a bonus or penalty for each piece on each square.
+   For example knights get a bonus in the center and a penalty on the edge.
+
+It's "tapered": we keep one set of numbers for the middlegame and one for the
+endgame, then blend them by how many pieces are left. That's how the king
+learns to hide early and walk to the center late.
+
+The numbers come from PeSTO by Ronald Friederich (Rofchade), published on the
+Chess Programming Wiki. They were tuned automatically on lots of games.
 """
 import chess
 
-# Tables are written from white's view with a8 first, so a white piece on
-# python-chess square `sq` (a1 = 0) reads index sq ^ 56 and a black piece reads sq.
+# Tables are laid out from white's view (rank 8 first), so white reads index sq ^ 56 and black reads sq directly.
 MG_PST = {
     chess.PAWN: [
           0,   0,   0,   0,   0,   0,  0,   0,
@@ -133,14 +142,16 @@ EG_PST = {
     ],
 }
 
+# Piece values in centipawns, with the king at 0 because it can never be traded.
 MG_VALUE = {chess.PAWN: 82, chess.KNIGHT: 337, chess.BISHOP: 365, chess.ROOK: 477, chess.QUEEN: 1025, chess.KING: 0}
 EG_VALUE = {chess.PAWN: 94, chess.KNIGHT: 281, chess.BISHOP: 297, chess.ROOK: 512, chess.QUEEN: 936, chess.KING: 0}
+# Phase weight per piece, summing to 24 at the start (middlegame) and 0 with only kings and pawns (endgame).
 PHASE_WEIGHT = {chess.PAWN: 0, chess.KNIGHT: 1, chess.BISHOP: 1, chess.ROOK: 2, chess.QUEEN: 4, chess.KING: 0}
 MAX_PHASE = 24
 
 
+# Precomputed TABLE[piece][color][square] holding material plus square bonus so evaluate() only does lookups.
 def _build(values, pst):
-    """Precompute value + table per (piece, color, square) so evaluate() is just lookups."""
     return {
         pt: {
             chess.WHITE: [values[pt] + pst[pt][sq ^ 56] for sq in chess.SQUARES],
@@ -154,8 +165,8 @@ MG_TABLE = _build(MG_VALUE, MG_PST)
 EG_TABLE = _build(EG_VALUE, EG_PST)
 
 
+# Returns the score from the side to move's point of view because negamax in engine.py expects that.
 def evaluate(board: chess.Board) -> int:
-    """Static score in centipawns from the side to move's point of view."""
     mg = {chess.WHITE: 0, chess.BLACK: 0}
     eg = {chess.WHITE: 0, chess.BLACK: 0}
     phase = 0
@@ -166,5 +177,6 @@ def evaluate(board: chess.Board) -> int:
     phase = min(phase, MAX_PHASE)
     mg_score = mg[chess.WHITE] - mg[chess.BLACK]
     eg_score = eg[chess.WHITE] - eg[chess.BLACK]
+    # Blend the middlegame and endgame scores by phase, from 24 (all middlegame) down to 0 (all endgame).
     score = (mg_score * phase + eg_score * (MAX_PHASE - phase)) // MAX_PHASE
     return score if board.turn == chess.WHITE else -score

@@ -174,17 +174,22 @@
 </main>
 
 <script>
+// The page never applies chess rules itself and instead sends the move list to app.py and redraws from the returned state.
+
 const GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const LEVEL_NAMES = ["Pushover", "Rookie", "Casual", "Club", "Solid",
                      "Sharp", "Strong", "Brutal", "Ruthless", "Maximum"];
 const $ = id => document.getElementById(id);
 const board = $("board");
 
+// `state` is the latest game state from Python and the other variables only track UI choices.
 let state = null, human = "white", colorChoice = "white", level = 5, flipped = false;
 let selected = null, busy = false, lastInfo = null, drag = null, hintMove = null;
 
+// Calls Api.play() in app.py. With think=true the engine also plays a move.
 const api = (moves, think, lvl = level) => window.pywebview.api.play(moves, think, lvl);
 
+// Parses a FEN into { e1: "K", e8: "k", ... } with uppercase for white and lowercase for black.
 function pieces() {
   const map = {};
   state.fen.split(" ")[0].split("/").forEach((row, r) => {
@@ -208,10 +213,12 @@ function pieceEl(p) {
   return s;
 }
 
+// Rebuilds the board, status text, move list and eval bar from `state`.
 function render() {
   const map = pieces();
-  const whiteBottom = (human === "white") !== flipped;
+  const whiteBottom = (human === "white") !== flipped;  // you're at the bottom unless you hit flip
   const hl = hintMove || state.moves.at(-1);
+  // Squares the selected piece can move to (legal moves look like "e2e4").
   const targets = selected ? state.legal.filter(m => m.startsWith(selected)).map(m => m.slice(2, 4)) : [];
   const files = whiteBottom ? "abcdefgh" : "hgfedcba";
   const ranks = whiteBottom ? "87654321" : "12345678";
@@ -256,6 +263,7 @@ function render() {
   $("hint").disabled = !myTurn();
 }
 
+// The bar on the side showing who the engine thinks is winning.
 function renderEval(whiteBottom) {
   $("evalbar").classList.toggle("black-bottom", !whiteBottom);
   let pct = 50, text = "0.00";
@@ -264,6 +272,7 @@ function renderEval(whiteBottom) {
       pct = lastInfo.mate > 0 ? 100 : 0;
       text = (lastInfo.mate > 0 ? "+" : "-") + "M" + Math.abs(lastInfo.mate);
     } else {
+      // tanh squashes any score into -1..1, so a huge lead fills the bar without overflowing it.
       pct = 50 + 50 * Math.tanh(lastInfo.score / 600);
       text = (lastInfo.score > 0 ? "+" : "") + (lastInfo.score / 100).toFixed(2);
     }
@@ -275,6 +284,7 @@ function renderEval(whiteBottom) {
   $("eval-big").textContent = text;
 }
 
+// Wraps every button action so an error shows a message instead of freezing the UI.
 async function run(task) {
   try {
     await task();
@@ -294,6 +304,7 @@ async function engineMove() {
   render();
 }
 
+// Turns the engine's score into a sentence. Scores are in centipawns (100 = one pawn).
 function describeEval(info) {
   const mine = human === "white" ? 1 : -1;
   if (info.mate) {
@@ -310,6 +321,7 @@ function describeEval(info) {
   return `It thinks ${who} <b>winning</b> (${(size / 100).toFixed(1)} pawns).`;
 }
 
+// Fills the "why did it play that" panel after each engine move.
 function explain(san, info) {
   const box = $("explain");
   if (!info) {
@@ -328,6 +340,7 @@ function explain(san, info) {
     `<p>${describeEval(info)}</p>`;
 }
 
+// You made a move: send it to Python, then let the engine reply.
 async function play(uci) {
   selected = null;
   hintMove = null;
@@ -336,6 +349,7 @@ async function play(uci) {
   if (!state.result) await engineMove();
 }
 
+// A promoting pawn has one legal move per promotion piece, so we ask which piece you want.
 function tryMove(from, to) {
   const options = state.legal.filter(m => m.startsWith(from + to));
   if (options.length > 1) return askPromotion(from + to);
@@ -354,6 +368,7 @@ function askPromotion(prefix) {
   $("promo").classList.add("open");
 }
 
+// Pieces move by click-then-click or by dragging a ghost copy that starts on pointerdown.
 board.addEventListener("pointerdown", e => {
   const sq = e.target.closest(".sq")?.dataset.sq;
   if (!sq || !myTurn()) return;
@@ -379,6 +394,7 @@ function moveGhost(e) {
 }
 
 window.addEventListener("pointermove", e => drag && moveGhost(e));
+// Dropping the ghost makes the move if legal and otherwise puts the piece back.
 window.addEventListener("pointerup", e => {
   if (!drag) return;
   const { from, ghost, wasSelected } = drag;
@@ -399,6 +415,7 @@ async function newGame() {
   if (human === "black") await engineMove();
 }
 
+// Takes back your last move and the engine's reply, so it's your turn again.
 async function undo() {
   let moves = state.moves.slice(0, -1);
   const turnAfter = m => (m.length % 2 === 0 ? "white" : "black");
@@ -409,6 +426,7 @@ async function undo() {
   if (state.turn !== human) await engineMove();
 }
 
+// Asks the engine (at level 8) what it would play for you, and highlights it.
 async function hint() {
   busy = true;
   render();
@@ -423,6 +441,7 @@ function setPressed(container, pressed) {
   for (const b of container.children) b.setAttribute("aria-pressed", b === pressed);
 }
 
+// Create the level buttons and hook up the remaining buttons.
 for (let i = 1; i <= 10; i++) {
   const b = document.createElement("button");
   b.textContent = i;
@@ -442,6 +461,7 @@ $("new-game").onclick = () => run(newGame);
 $("undo").onclick = () => run(undo);
 $("hint").onclick = () => run(hint);
 $("flip").onclick = () => { flipped = !flipped; render(); };
+// Wait until pywebview says the Python bridge is ready before starting a game.
 window.addEventListener("pywebviewready", () => run(newGame));
 </script>
 </body>

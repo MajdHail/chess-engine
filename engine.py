@@ -1,11 +1,33 @@
-"""Search: negamax with alpha-beta pruning, iterative deepening and the usual enhancements.
+"""The search: how the engine decides which move to play.
 
-- Principal variation search (null-window re-search for non-first moves)
-- Transposition table keyed by Zobrist hash
-- Quiescence search on captures to avoid the horizon effect
-- Null-move pruning and late move reductions
-- Move ordering: TT move, MVV-LVA captures, killer moves, history heuristic
-- Check extensions and mate-distance aware scores
+The core idea is minimax. The engine imagines every move it could make, then
+every reply the opponent could make, and so on, and picks the move that works
+out best assuming the opponent also plays their best. The number of positions
+explodes quickly, so most of this file is tricks to skip positions that
+cannot change the answer:
+
+- Negamax: minimax written so one function handles both sides. A position
+  that is +3 for me is -3 for you, so we just flip the sign each ply.
+- Alpha-beta pruning: stop looking at a move as soon as we know it is worse
+  than something we already found.
+- Iterative deepening: search 1 move deep, then 2, then 3... until time runs
+  out. Each round also tells the next one which moves to try first.
+- Transposition table (TT): a cache of positions we already searched, because
+  the same position can be reached by different move orders.
+- Quiescence search: at the end of the search, keep looking at captures so we
+  never stop in the middle of a trade (the "horizon effect").
+- Move ordering: try the most promising moves first so alpha-beta prunes more.
+- Null-move pruning, late move reductions, principal variation search: extra
+  shortcuts that search unlikely moves less deeply.
+
+Words you will see a lot:
+- ply: one move by one side (a "move" in chess notation is two plies).
+- depth: how many more plies we still want to look ahead.
+- alpha: the best score we (the side to move) are already guaranteed.
+- beta: the best score the opponent is already guaranteed. If we find
+  something >= beta, the opponent would never let us reach this position,
+  so we can stop searching it (a "beta cutoff").
+- centipawns: scores are in hundredths of a pawn, so 100 = one pawn.
 """
 import math
 import random
@@ -18,12 +40,14 @@ import chess.polyglot
 from evaluation import evaluate
 
 INF = 1_000_000
+# Mate scores subtract the ply count so the engine prefers the quickest mate.
 MATE = 100_000
 MATE_THRESHOLD = MATE - 1000
+# Transposition table entry types: EXACT is the true score, LOWER is a floor and UPPER is a ceiling.
 EXACT, LOWER, UPPER = 0, 1, 2
 TT_MAX_ENTRIES = 1_000_000
 
-# level: (max depth, seconds per move, random noise in centipawns added to root scores)
+# Each level is (max depth, seconds per move, centipawn noise) so weaker levels search shallower and sometimes blunder on purpose.
 LEVELS = {
     1: (1, 0.1, 300),
     2: (1, 0.2, 150),
@@ -39,7 +63,7 @@ LEVELS = {
 
 
 class TimeUp(Exception):
-    pass
+    """Raised deep inside the search to bail out as soon as time runs out."""
 
 
 class Engine:
@@ -69,13 +93,14 @@ class Engine:
         start = time.monotonic()
         limit = self.time_limit if time_limit is None else time_limit
         self.deadline = start + limit
-        self.nodes = 0
-        self.killers = defaultdict(list)
-        self.history = defaultdict(int)
+        self.nodes = 0  # how many positions we looked at, just for stats
+        self.killers = defaultdict(list)  # quiet moves that caused a cutoff, per ply
+        self.history = defaultdict(int)  # how often each quiet move caused a cutoff
         # ponytail: whole-table wipe when full, replace with depth-preferred buckets if memory matters
         if len(self.tt) > TT_MAX_ENTRIES:
             self.tt.clear()
 
+        # Iterative deepening keeps the result of the last fully finished depth and discards a depth cut off by the clock.
         best_move = None
         for depth in range(1, (max_depth or self.max_depth) + 1):
             try:
@@ -87,24 +112,26 @@ class Engine:
             if on_info:
                 on_info(depth, score, self.nodes, elapsed, self._pv(board, move, depth))
             if abs(score) >= MATE_THRESHOLD:
-                break
+                break  # found a forced mate, searching deeper won't help
             # Each iteration costs several times the last one, so don't start one we can't finish.
             if elapsed > limit / 2:
                 break
         return best_move or legal[0]
 
     def _root(self, board, depth, prev_best):
+        """Search every legal move at the top of the tree and return (best move, its score)."""
         alpha = -INF
         best_move, best_score, best_key = None, -INF, -math.inf
+        # prev_best is the best move from the last iteration, so it gets searched first.
         for move in self._ordered_moves(board, prev_best, 0):
             board.push(move)
             if self.noise:
-                # Weaker levels need exact scores for every root move so the noise
-                # picks between real alternatives instead of pruning bounds.
+                # Weaker levels need exact scores for every root move so the noise picks between real alternatives.
                 score = -self._negamax(board, depth - 1, -INF, INF, 1)
             else:
                 score = -self._negamax(board, depth - 1, -INF, -alpha, 1)
             board.pop()
+            # Moves are ranked by score plus level noise while the UI still gets the real score.
             key = score + random.randint(-self.noise, self.noise) if self.noise else score
             if key > best_key:
                 best_key, best_move, best_score = key, move, score
@@ -113,25 +140,35 @@ class Engine:
 
     def _check_time(self):
         self.nodes += 1
+        # Reading the clock is slow, so only check every 2048 positions.
         if self.nodes & 2047 == 0 and time.monotonic() > self.deadline:
             raise TimeUp
 
     def _negamax(self, board, depth, alpha, beta, ply, allow_null=True):
+        """Score `board` from the side to move's point of view.
+
+        The score is only exact if it lands between alpha and beta. Outside that
+        window we just know "it's at least beta" or "it's at most alpha", which is
+        all the caller needs to decide it won't pick this line.
+        """
         self._check_time()
         if board.is_repetition(2) or board.halfmove_clock >= 100 or board.is_insufficient_material():
-            return 0
+            return 0  # draw
 
+        # Check extension: never stop searching while in check, the position is too sharp.
         in_check = board.is_check()
         if in_check:
             depth += 1
         if depth <= 0:
             return self._quiesce(board, alpha, beta, ply)
 
+        # Look up this position's Zobrist hash in the transposition table.
         key = chess.polyglot.zobrist_hash(board)
         tt_move = None
         entry = self.tt.get(key)
         if entry:
             tt_depth, flag, tt_score, tt_move = entry
+            # Only trust the cached score if it was searched at least as deep as we need.
             if tt_depth >= depth:
                 tt_score = _score_from_tt(tt_score, ply)
                 if flag == EXACT:
@@ -141,8 +178,7 @@ class Engine:
                 if flag == UPPER and tt_score <= alpha:
                     return tt_score
 
-        # Null move: if passing still beats beta, a real move surely will. Unsafe in
-        # zugzwang-prone pawn endings, hence the non-pawn material requirement.
+        # Null move pruning skips a turn to prove a cutoff, but only with non-pawn material to avoid zugzwang mistakes.
         has_pieces = board.occupied_co[board.turn] & ~(board.pawns | board.kings)
         if allow_null and not in_check and depth >= 3 and has_pieces and abs(beta) < MATE_THRESHOLD:
             board.push(chess.Move.null())
@@ -153,6 +189,7 @@ class Engine:
 
         moves = self._ordered_moves(board, tt_move, ply)
         if not moves:
+            # With no legal moves it is checkmate when in check (worse the sooner) and stalemate otherwise.
             return -MATE + ply if in_check else 0
 
         original_alpha = alpha
@@ -161,10 +198,13 @@ class Engine:
             quiet = not board.is_capture(move) and not move.promotion
             board.push(move)
             if i == 0:
+                # First move is probably the best one (thanks to move ordering), search it fully.
                 score = -self._negamax(board, depth - 1, -beta, -alpha, ply + 1)
             else:
+                # Later moves get a cheap zero-window search and late quiet moves search one ply shallower (PVS plus LMR).
                 reduction = 1 if depth >= 3 and i >= 4 and quiet and not in_check and not board.is_check() else 0
                 score = -self._negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1)
+                # The cheap search says this move might be better after all, so search it properly.
                 if score > alpha and (reduction or score < beta):
                     score = -self._negamax(board, depth - 1, -beta, -alpha, ply + 1)
             board.pop()
@@ -173,6 +213,7 @@ class Engine:
                 best_score, best_move = score, move
             alpha = max(alpha, score)
             if alpha >= beta:
+                # On a beta cutoff we stop and remember the quiet move as a killer since it likely works in sibling positions.
                 if quiet:
                     killers = self.killers[ply]
                     if move not in killers:
@@ -181,6 +222,7 @@ class Engine:
                     self.history[(board.turn, move.from_square, move.to_square)] += depth * depth
                 break
 
+        # Save the result in the TT, noting whether it's exact or just a bound.
         if best_score <= original_alpha:
             flag = UPPER
         elif best_score >= beta:
@@ -191,7 +233,13 @@ class Engine:
         return best_score
 
     def _quiesce(self, board, alpha, beta, ply):
+        """Keep searching captures only, until the position is quiet enough to evaluate.
+
+        Without this, the engine might stop right after QxP and think it won a pawn,
+        not seeing that the queen gets taken back next move.
+        """
         self._check_time()
+        # Stand pat because not capturing is always allowed, so the current eval is a floor.
         stand_pat = evaluate(board)
         if stand_pat >= beta:
             return stand_pat
@@ -206,8 +254,10 @@ class Engine:
         return alpha
 
     def _ordered_moves(self, board, tt_move, ply):
+        """Sort moves best-guess first. Good ordering is what makes alpha-beta fast."""
         killers = self.killers[ply]
 
+        # Bigger number = searched earlier.
         def priority(move):
             if move == tt_move:
                 return 10_000_000
@@ -222,7 +272,10 @@ class Engine:
         return sorted(board.legal_moves, key=priority, reverse=True)
 
     def _pv(self, board, first_move, depth):
-        """Follow best moves through the TT to reconstruct the principal variation."""
+        """Follow best moves through the TT to reconstruct the principal variation.
+
+        The principal variation (PV) is the line the engine expects both sides to play.
+        """
         pv = [first_move]
         board = board.copy()
         board.push(first_move)
@@ -241,8 +294,7 @@ def _mvv_lva(board, move):
     return 10 * victim - board.piece_type_at(move.from_square)
 
 
-# Mate scores are stored relative to the node, not the root, so a TT hit at a
-# different ply still reports the correct distance to mate.
+# Mate scores are stored relative to the node so a hit at another ply still reports the right distance to mate.
 def _score_to_tt(score, ply):
     if score >= MATE_THRESHOLD:
         return score + ply

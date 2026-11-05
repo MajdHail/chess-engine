@@ -1,4 +1,11 @@
-"""Run with `python test_engine.py` or `pytest`."""
+"""Tests to check the engine still works after you change something.
+
+Run with `python test_engine.py` or `pytest`.
+
+Most tests are small puzzles with one clearly right answer. Positions are
+written in FEN, a one-line text format for a chess position. You can paste
+any FEN into lichess.org/editor to see the board.
+"""
 import chess
 
 from engine import Engine
@@ -7,10 +14,12 @@ from uci import parse_go
 
 
 def best(fen, depth=4, level=10):
+    """The engine's move for a position, as text like 'e2e4'."""
     return Engine(level).search(chess.Board(fen), time_limit=30, max_depth=depth).uci()
 
 
 def test_eval_is_symmetric():
+    # Swapping the colors should give the same score, or the evaluation favors one side.
     board = chess.Board("r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4")
     assert evaluate(board) == evaluate(board.mirror())
 
@@ -49,6 +58,7 @@ def test_go_depth_keeps_time_limit():
     assert max_depth == 30
 
 
+# Lets you run the tests without installing pytest.
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
