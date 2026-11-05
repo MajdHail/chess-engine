@@ -12,6 +12,7 @@ commands to it, and reads replies. For example:
 This means you can make the engine play against other engines, or against
 itself, without the desktop app.
 """
+
 import sys
 
 import chess
@@ -24,7 +25,7 @@ def parse_position(tokens):
     moves = []
     if "moves" in tokens:
         i = tokens.index("moves")
-        tokens, moves = tokens[:i], tokens[i + 1:]
+        tokens, moves = tokens[:i], tokens[i + 1 :]
     board = chess.Board() if tokens[1] == "startpos" else chess.Board(" ".join(tokens[2:]))
     for move in moves:
         board.push_uci(move)
@@ -64,8 +65,10 @@ def main():
 
     def on_info(depth, score, nodes, seconds, pv):
         nps = int(nodes / seconds) if seconds else 0
-        print(f"info depth {depth} score {format_score(score)} nodes {nodes} nps {nps} "
-              f"time {int(seconds * 1000)} pv {' '.join(m.uci() for m in pv)}")
+        print(
+            f"info depth {depth} score {format_score(score)} nodes {nodes} nps {nps} "
+            f"time {int(seconds * 1000)} pv {' '.join(m.uci() for m in pv)}"
+        )
 
     # Read one command per line until the GUI says quit.
     for line in sys.stdin:
@@ -84,7 +87,7 @@ def main():
             engine.new_game()
             board = chess.Board()
         elif command == "setoption" and "value" in tokens:
-            name = " ".join(tokens[tokens.index("name") + 1:tokens.index("value")])
+            name = " ".join(tokens[tokens.index("name") + 1 : tokens.index("value")])
             if name.lower() == "skill level":
                 engine.set_level(int(tokens[tokens.index("value") + 1]))
         elif command == "position":

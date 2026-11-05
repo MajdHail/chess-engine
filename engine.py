@@ -29,6 +29,7 @@ Words you will see a lot:
   so we can stop searching it (a "beta cutoff").
 - centipawns: scores are in hundredths of a pawn, so 100 = one pawn.
 """
+
 import math
 import random
 import time
@@ -154,7 +155,11 @@ class Engine:
         all the caller needs to decide it won't pick this line.
         """
         self._check_time()
-        if board.is_repetition(2) or board.halfmove_clock >= 100 or board.is_insufficient_material():
+        if (
+            board.is_repetition(2)
+            or board.halfmove_clock >= 100
+            or board.is_insufficient_material()
+        ):
             return 0  # draw
 
         # Check extension: never stop searching while in check, the position is too sharp.
@@ -206,7 +211,11 @@ class Engine:
             else:
                 # PVS and LMR: test later moves with a cheap zero-width window,
                 # searching late quiet moves one ply shallower.
-                reduction = 1 if depth >= 3 and i >= 4 and quiet and not in_check and not board.is_check() else 0
+                reduction = (
+                    1
+                    if depth >= 3 and i >= 4 and quiet and not in_check and not board.is_check()
+                    else 0
+                )
                 score = -self._negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1)
                 # The cheap search says this move might be better after all, so search it properly.
                 if score > alpha and (reduction or score < beta):
@@ -248,7 +257,9 @@ class Engine:
         if stand_pat >= beta:
             return stand_pat
         alpha = max(alpha, stand_pat)
-        for move in sorted(board.generate_legal_captures(), key=lambda m: _mvv_lva(board, m), reverse=True):
+        for move in sorted(
+            board.generate_legal_captures(), key=lambda m: _mvv_lva(board, m), reverse=True
+        ):
             board.push(move)
             score = -self._quiesce(board, -beta, -alpha, ply + 1)
             board.pop()
@@ -294,7 +305,9 @@ class Engine:
 
 def _mvv_lva(board, move):
     """Most valuable victim, least valuable attacker: PxQ first, QxP last."""
-    victim = board.piece_type_at(move.to_square) or chess.PAWN  # en passant lands on an empty square
+    victim = (
+        board.piece_type_at(move.to_square) or chess.PAWN
+    )  # en passant lands on an empty square
     return 10 * victim - board.piece_type_at(move.from_square)
 
 

@@ -13,6 +13,7 @@ learns to hide early and walk to the center late.
 The numbers come from PeSTO by Ronald Friederich (Rofchade), published on the
 Chess Programming Wiki. They were tuned automatically on lots of games.
 """
+
 import chess
 
 # Tables read from white's view with rank 8 first, so white looks up sq ^ 56 and black looks up sq.
@@ -146,10 +147,31 @@ EG_PST = {
 # fmt: on
 
 # Piece values in centipawns. The king is 0 because it can never be traded.
-MG_VALUE = {chess.PAWN: 82, chess.KNIGHT: 337, chess.BISHOP: 365, chess.ROOK: 477, chess.QUEEN: 1025, chess.KING: 0}
-EG_VALUE = {chess.PAWN: 94, chess.KNIGHT: 281, chess.BISHOP: 297, chess.ROOK: 512, chess.QUEEN: 936, chess.KING: 0}
+MG_VALUE = {
+    chess.PAWN: 82,
+    chess.KNIGHT: 337,
+    chess.BISHOP: 365,
+    chess.ROOK: 477,
+    chess.QUEEN: 1025,
+    chess.KING: 0,
+}
+EG_VALUE = {
+    chess.PAWN: 94,
+    chess.KNIGHT: 281,
+    chess.BISHOP: 297,
+    chess.ROOK: 512,
+    chess.QUEEN: 936,
+    chess.KING: 0,
+}
 # Phase weights sum to 24 at the start (middlegame) and 0 with only kings and pawns (endgame).
-PHASE_WEIGHT = {chess.PAWN: 0, chess.KNIGHT: 1, chess.BISHOP: 1, chess.ROOK: 2, chess.QUEEN: 4, chess.KING: 0}
+PHASE_WEIGHT = {
+    chess.PAWN: 0,
+    chess.KNIGHT: 1,
+    chess.BISHOP: 1,
+    chess.ROOK: 2,
+    chess.QUEEN: 4,
+    chess.KING: 0,
+}
 MAX_PHASE = 24
 
 
@@ -169,7 +191,7 @@ EG_TABLE = _build(EG_VALUE, EG_PST)
 
 
 def evaluate(board: chess.Board) -> int:
-    """Return the score in centipawns from the side to move's point of view, as negamax expects."""
+    """Return the score in centipawns from the side to move's point of view."""
     mg = {chess.WHITE: 0, chess.BLACK: 0}
     eg = {chess.WHITE: 0, chess.BLACK: 0}
     phase = 0

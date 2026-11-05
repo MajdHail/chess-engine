@@ -6,6 +6,7 @@ Most tests are small puzzles with one clearly right answer. Positions are
 written in FEN, a one-line text format for a chess position. You can paste
 any FEN into lichess.org/editor to see the board.
 """
+
 import chess
 
 from engine import Engine
@@ -53,7 +54,7 @@ def test_every_level_returns_legal_move():
 def test_go_depth_keeps_time_limit():
     # En Croissant sends "go depth 30" and waits; a Python search would never reach that depth.
     engine = Engine(10)
-    time_limit, max_depth = parse_go("go depth 30".split(), chess.Board(), engine)
+    time_limit, max_depth = parse_go(["go", "depth", "30"], chess.Board(), engine)
     assert time_limit == engine.time_limit
     assert max_depth == 30
 
