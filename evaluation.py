@@ -15,7 +15,8 @@ Chess Programming Wiki. They were tuned automatically on lots of games.
 """
 import chess
 
-# Tables are laid out from white's view (rank 8 first), so white reads index sq ^ 56 and black reads sq directly.
+# Tables read from white's view with rank 8 first, so white looks up sq ^ 56 and black looks up sq.
+# fmt: off
 MG_PST = {
     chess.PAWN: [
           0,   0,   0,   0,   0,   0,  0,   0,
@@ -142,15 +143,17 @@ EG_PST = {
     ],
 }
 
-# Piece values in centipawns, with the king at 0 because it can never be traded.
+# fmt: on
+
+# Piece values in centipawns. The king is 0 because it can never be traded.
 MG_VALUE = {chess.PAWN: 82, chess.KNIGHT: 337, chess.BISHOP: 365, chess.ROOK: 477, chess.QUEEN: 1025, chess.KING: 0}
 EG_VALUE = {chess.PAWN: 94, chess.KNIGHT: 281, chess.BISHOP: 297, chess.ROOK: 512, chess.QUEEN: 936, chess.KING: 0}
-# Phase weight per piece, summing to 24 at the start (middlegame) and 0 with only kings and pawns (endgame).
+# Phase weights sum to 24 at the start (middlegame) and 0 with only kings and pawns (endgame).
 PHASE_WEIGHT = {chess.PAWN: 0, chess.KNIGHT: 1, chess.BISHOP: 1, chess.ROOK: 2, chess.QUEEN: 4, chess.KING: 0}
 MAX_PHASE = 24
 
 
-# Precomputed TABLE[piece][color][square] holding material plus square bonus so evaluate() only does lookups.
+# Precompute TABLE[piece][color][square] as material plus square bonus, so evaluate() only looks up.
 def _build(values, pst):
     return {
         pt: {
@@ -165,8 +168,8 @@ MG_TABLE = _build(MG_VALUE, MG_PST)
 EG_TABLE = _build(EG_VALUE, EG_PST)
 
 
-# Returns the score from the side to move's point of view because negamax in engine.py expects that.
 def evaluate(board: chess.Board) -> int:
+    """Return the score in centipawns from the side to move's point of view, as negamax expects."""
     mg = {chess.WHITE: 0, chess.BLACK: 0}
     eg = {chess.WHITE: 0, chess.BLACK: 0}
     phase = 0

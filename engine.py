@@ -40,14 +40,15 @@ import chess.polyglot
 from evaluation import evaluate
 
 INF = 1_000_000
-# Mate scores subtract the ply count so the engine prefers the quickest mate.
+# Mate scores subtract the ply count, so the engine prefers the quickest mate.
 MATE = 100_000
 MATE_THRESHOLD = MATE - 1000
-# Transposition table entry types: EXACT is the true score, LOWER is a floor and UPPER is a ceiling.
+# Transposition table entry types: the stored score is exact, a floor or a ceiling.
 EXACT, LOWER, UPPER = 0, 1, 2
 TT_MAX_ENTRIES = 1_000_000
 
-# Each level is (max depth, seconds per move, centipawn noise) so weaker levels search shallower and sometimes blunder on purpose.
+# Level: (max depth, seconds per move, centipawn noise).
+# Weaker levels search less deeply, and noise makes them blunder on purpose.
 LEVELS = {
     1: (1, 0.1, 300),
     2: (1, 0.2, 150),
@@ -93,14 +94,15 @@ class Engine:
         start = time.monotonic()
         limit = self.time_limit if time_limit is None else time_limit
         self.deadline = start + limit
-        self.nodes = 0  # how many positions we looked at, just for stats
+        self.nodes = 0  # positions visited, for stats only
         self.killers = defaultdict(list)  # quiet moves that caused a cutoff, per ply
         self.history = defaultdict(int)  # how often each quiet move caused a cutoff
-        # ponytail: whole-table wipe when full, replace with depth-preferred buckets if memory matters
+        # Wiping the whole table is simple but loses good entries. Depth-preferred
+        # replacement would keep them if memory ever becomes a limit.
         if len(self.tt) > TT_MAX_ENTRIES:
             self.tt.clear()
 
-        # Iterative deepening keeps the result of the last fully finished depth and discards a depth cut off by the clock.
+        # Keep the result of the last finished depth and discard one cut off by the clock.
         best_move = None
         for depth in range(1, (max_depth or self.max_depth) + 1):
             try:
@@ -126,12 +128,12 @@ class Engine:
         for move in self._ordered_moves(board, prev_best, 0):
             board.push(move)
             if self.noise:
-                # Weaker levels need exact scores for every root move so the noise picks between real alternatives.
+                # Noise needs an exact score for every root move, so it picks between real options.
                 score = -self._negamax(board, depth - 1, -INF, INF, 1)
             else:
                 score = -self._negamax(board, depth - 1, -INF, -alpha, 1)
             board.pop()
-            # Moves are ranked by score plus level noise while the UI still gets the real score.
+            # Rank moves by score plus noise, but report the real score to the UI.
             key = score + random.randint(-self.noise, self.noise) if self.noise else score
             if key > best_key:
                 best_key, best_move, best_score = key, move, score
@@ -178,7 +180,8 @@ class Engine:
                 if flag == UPPER and tt_score <= alpha:
                     return tt_score
 
-        # Null move pruning skips a turn to prove a cutoff, but only with non-pawn material to avoid zugzwang mistakes.
+        # Null-move pruning: if we can pass and still beat beta, this position is too good.
+        # Pawn-only endings are excluded because zugzwang makes passing unrealistically safe.
         has_pieces = board.occupied_co[board.turn] & ~(board.pawns | board.kings)
         if allow_null and not in_check and depth >= 3 and has_pieces and abs(beta) < MATE_THRESHOLD:
             board.push(chess.Move.null())
@@ -189,7 +192,7 @@ class Engine:
 
         moves = self._ordered_moves(board, tt_move, ply)
         if not moves:
-            # With no legal moves it is checkmate when in check (worse the sooner) and stalemate otherwise.
+            # No legal moves: checkmate if in check (worse the sooner), otherwise stalemate.
             return -MATE + ply if in_check else 0
 
         original_alpha = alpha
@@ -201,7 +204,8 @@ class Engine:
                 # First move is probably the best one (thanks to move ordering), search it fully.
                 score = -self._negamax(board, depth - 1, -beta, -alpha, ply + 1)
             else:
-                # Later moves get a cheap zero-window search and late quiet moves search one ply shallower (PVS plus LMR).
+                # PVS and LMR: test later moves with a cheap zero-width window,
+                # searching late quiet moves one ply shallower.
                 reduction = 1 if depth >= 3 and i >= 4 and quiet and not in_check and not board.is_check() else 0
                 score = -self._negamax(board, depth - 1 - reduction, -alpha - 1, -alpha, ply + 1)
                 # The cheap search says this move might be better after all, so search it properly.
@@ -213,7 +217,7 @@ class Engine:
                 best_score, best_move = score, move
             alpha = max(alpha, score)
             if alpha >= beta:
-                # On a beta cutoff we stop and remember the quiet move as a killer since it likely works in sibling positions.
+                # Beta cutoff. Remember quiet moves, since they often work in sibling positions.
                 if quiet:
                     killers = self.killers[ply]
                     if move not in killers:
@@ -294,7 +298,8 @@ def _mvv_lva(board, move):
     return 10 * victim - board.piece_type_at(move.from_square)
 
 
-# Mate scores are stored relative to the node so a hit at another ply still reports the right distance to mate.
+# The TT stores mate scores relative to the node, so a hit at another ply
+# still reports the right distance to mate.
 def _score_to_tt(score, ply):
     if score >= MATE_THRESHOLD:
         return score + ply

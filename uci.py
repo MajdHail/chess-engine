@@ -44,7 +44,7 @@ def parse_go(tokens, board, engine):
         increment = int(args.get(f"{side}inc", 0)) / 1000
         # Spend about 1/30 of the clock per move, plus half the increment.
         return min(engine.time_limit, remaining / 30 + increment / 2), None
-    # ponytail: "go infinite" is treated as a normal search since there is no stop thread
+    # "go infinite" runs as a normal timed search, because nothing listens for "stop" mid-search.
     return None, None
 
 
